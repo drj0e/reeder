@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reeder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/microsoft-cognitiveservices-speech-sdk@1.51.0/distrib/browser/microsoft.cognitiveservices.speech.sdk.bundle-min.js"></script>
+<style>
+:root{
+  --bg:#eef0f2; --paper:#ffffff; --ink:#1a1d21; --muted:#5f6670; --line:#d5d9de;
+  --accent:#0b7c80; --accent-ink:#ffffff; --danger:#b3261e;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#121417; --paper:#1a1d21; --ink:#e8e6e1; --muted:#9096a0; --line:#2a2f36;
+  --accent:#3fc1c4; --accent-ink:#0c1a1a; --danger:#ff7b72;
+}}
+:root[data-theme="dark"]{
+  --bg:#121417; --paper:#1a1d21; --ink:#e8e6e1; --muted:#9096a0; --line:#2a2f36;
+  --accent:#3fc1c4; --accent-ink:#0c1a1a; --danger:#ff7b72;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 'Atkinson Hyperlegible',system-ui,sans-serif}
+button,input,textarea,select{font:inherit;color:inherit}
+button{background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:.45em .9em;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:700}
+button:disabled{opacity:.5;cursor:default}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.bar{display:flex;gap:1rem;align-items:center;padding:.7rem 1.25rem;border-bottom:1px solid var(--line)}
+.bar strong{font-size:1.1rem;letter-spacing:.02em}
+.bar .hint{color:var(--muted);flex:1;font-size:.9rem}
+#setup{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:1.5rem;padding:1.25rem;max-width:1100px;margin:0 auto}
+.paste{display:flex;flex-direction:column;gap:.75rem}
+textarea{width:100%;min-height:50vh;resize:vertical;padding:1rem;border:1px solid var(--line);border-radius:8px;background:var(--paper);line-height:1.6}
+.stats{color:var(--muted);font-variant-numeric:tabular-nums}
+.settings{display:flex;flex-direction:column;gap:.6rem}
+.settings h2{font-size:.75rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin:.8rem 0 .2rem}
+.settings label{display:grid;grid-template-columns:1fr auto;gap:.3rem .6rem;align-items:center}
+.settings label input[type=range]{grid-column:1/-1}
+.settings label input[type=text],.settings label input[type=password]{grid-column:1/-1}
+.settings input[type=text],.settings input[type=password],.settings select{padding:.4em .6em;border:1px solid var(--line);border-radius:6px;background:var(--paper)}
+.settings output{font-variant-numeric:tabular-nums;color:var(--muted)}
+.tabs{display:flex;border-bottom:1px solid var(--line)}
+.tabs button{flex:1;border:0;border-bottom:2px solid transparent;border-radius:0;background:none;padding:.5em .3em;color:var(--muted);line-height:1.25}
+.tabs button small{display:block;font-size:.72rem}
+.tabs button[aria-selected=true]{color:var(--ink);border-bottom-color:var(--accent);font-weight:700}
+.tabs button[aria-selected=true] small{font-weight:400;color:var(--muted)}
+.panel{display:flex;flex-direction:column;gap:.6rem;padding-top:.4rem}
+.note{font-size:.85rem;color:var(--muted);margin:0}
+.err{color:var(--danger)}
+
+/* stage */
+#stage{--s:9;position:fixed;inset:0;background:var(--paper);display:grid;grid-template-rows:1fr auto auto;place-items:center}
+.word{font-size:calc(var(--s)*1vmin);font-weight:700;line-height:1.1;display:grid;grid-template-columns:1fr auto 1fr;white-space:nowrap;max-width:94vw}
+.word.plain{display:block;white-space:normal;text-align:center;text-wrap:balance;line-height:1.25;max-width:min(94vw,40ch)}
+.word .l{justify-self:end}
+.word .p{color:var(--accent);position:relative}
+.word .p::before,.word .p::after{content:'';position:absolute;left:50%;width:2px;height:.22em;background:var(--line);transform:translateX(-50%)}
+.word .p::before{top:-.4em}.word .p::after{bottom:-.4em}
+.word.plain .p{display:none}
+#article{align-self:stretch;justify-self:center;min-height:0;overflow:auto;width:min(100%,72ch);padding:2rem 1.25rem;font-size:calc(.9rem + var(--s)*.09rem);line-height:1.7}
+#article p{margin:0 0 1em}
+#article span{cursor:pointer;border-radius:3px;padding:0 .1em}
+#article .cur{background:var(--accent);color:var(--accent-ink)}
+#article.sent .cur{background:color-mix(in srgb,var(--accent) 28%,transparent);color:inherit}
+@media (prefers-reduced-motion:no-preference){#article{scroll-behavior:smooth}}
+.context{max-width:60ch;margin:0;padding:0 1.25rem;color:var(--muted);text-align:center;font-size:1.1rem;min-height:3.5em}
+.context b{color:var(--ink)}
+.controls{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;justify-content:center;padding:1rem 1.25rem 1.4rem;width:100%}
+.controls label{display:flex;gap:.5rem;align-items:center;font-variant-numeric:tabular-nums}
+.controls .err{flex-basis:100%;text-align:center;font-size:.9rem}
+.status{color:var(--muted);font-size:.9rem;font-variant-numeric:tabular-nums}
+.progress{position:absolute;left:0;right:0;bottom:0;height:3px;background:var(--line)}
+.progress div{height:100%;background:var(--accent);width:0}
+@media (max-width:720px){#setup{grid-template-columns:1fr}.bar .hint{display:none}}
+@media (prefers-reduced-motion:no-preference){.progress div{transition:width .2s}}
+</style>
+</head>
+<body>
+<header class="bar">
+  <strong>Reeder</strong>
+  <span class="hint">Paste, press Read. Space pauses · ← → skip sentences · ↑ ↓ change speed · Esc back.</span>
+  <button id="theme" type="button">Theme</button>
+</header>
+
+<main id="setup">
+  <section class="paste">
+    <textarea id="text" placeholder="Paste anything here — an article, a doc, a wall of chat output."></textarea>
+    <div class="stats" id="stats">0 words</div>
+    <div><button id="start" class="primary" type="button" disabled>Read</button></div>
+  </section>
+  <aside class="settings">
+    <nav class="tabs" role="tablist">
+      <button type="button" role="tab" data-mode="speed">Speed<small>one word, silent</small></button>
+      <button type="button" role="tab" data-mode="speech">Speech<small>read aloud, highlighted</small></button>
+      <button type="button" role="tab" data-mode="both">Speed speech<small>one word, with voice</small></button>
+    </nav>
+    <div class="panel" data-mode="speed">
+      <label>Speed <output></output><input type="range" data-k="wpm" min="100" max="900" step="10"></label>
+      <label>Words per frame <output></output><input type="range" data-k="chunk" min="1" max="20"></label>
+      <label>Text size <output></output><input type="range" data-k="size" min="4" max="18"></label>
+      <label>Focus letter (one word only) <input type="checkbox" data-k="orp"></label>
+      <label>Pause at punctuation <input type="checkbox" data-k="ppause"></label>
+    </div>
+    <div class="panel" data-mode="speech">
+      <label>Voice speed <output></output><input type="range" data-k="rate" min="0.5" max="2" step="0.05"></label>
+      <label>Highlight <select data-k="chunk"><option value="1">word</option><option value="0">sentence</option></select></label>
+      <label>Text size <output></output><input type="range" data-k="size" min="4" max="18"></label>
+      <label>Voice <input type="text" data-k="voiceName" list="voices"></label>
+    </div>
+    <div class="panel" data-mode="both">
+      <label>Voice speed <output></output><input type="range" data-k="rate" min="0.5" max="2" step="0.05"></label>
+      <label>Words per frame <output></output><input type="range" data-k="chunk" min="1" max="20"></label>
+      <label>Text size <output></output><input type="range" data-k="size" min="4" max="18"></label>
+      <label>Focus letter (one word only) <input type="checkbox" data-k="orp"></label>
+      <label>Voice <input type="text" data-k="voiceName" list="voices"></label>
+    </div>
+    <datalist id="voices">
+      <option value="en-US-AvaMultilingualNeural"><option value="en-US-AndrewMultilingualNeural">
+      <option value="en-US-EmmaMultilingualNeural"><option value="en-US-BrianMultilingualNeural">
+      <option value="en-GB-SoniaNeural"><option value="en-GB-RyanNeural"><option value="en-AU-NatashaNeural">
+    </datalist>
+    <div id="azure" class="panel">
+      <h2>Azure Speech</h2>
+      <label>Key <input type="password" id="key" autocomplete="off"></label>
+      <label>Region <input type="text" id="region" placeholder="eastus"></label>
+      <p class="note">Key stays in this browser's storage and goes only to Azure. Free tier covers 500k characters a month. Without a key, voice modes pace by timer.</p>
+    </div>
+  </aside>
+</main>
+
+<section id="stage" hidden>
+  <div class="word" id="word"><span class="l"></span><span class="p"></span><span class="r"></span></div>
+  <div id="article" hidden></div>
+  <p class="context" id="context"></p>
+  <div class="controls">
+    <button id="back" type="button">◀ Sentence</button>
+    <button id="play" class="primary" type="button">Play</button>
+    <button id="fwd" type="button">Sentence ▶</button>
+    <label id="speedCtl">Speed <input type="range" id="wpm2" min="100" max="900" step="10"><output id="wpmOut2"></output></label>
+    <label id="rateCtl">Voice <input type="range" id="rate2" min="0.5" max="2" step="0.05"><output id="rateOut2"></output></label>
+    <span class="status" id="status"></span>
+    <button id="exit" type="button">Done</button>
+    <span class="err" id="err"></span>
+  </div>
+  <div class="progress"><div id="bar"></div></div>
+</section>
+<audio id="audio"></audio>
+
+<script>
+const $ = id => document.getElementById(id);
+// per-mode settings; chunk 0 = whole sentence
+const DEF = {
+  speed:  {wpm:300, chunk:1, size:9, orp:true, ppause:true},
+  speech: {rate:1, chunk:1, size:9, voiceName:'en-US-AvaMultilingualNeural'},
+  both:   {rate:1, chunk:1, size:9, orp:true, voiceName:'en-US-AvaMultilingualNeural'},
+};
+const S = Object.assign({mode:'speed', key:'', region:'eastus', theme:'', text:'', pos:0, cfg:{}}, JSON.parse(localStorage.reeder || '{}'));
+for (const m in DEF) S.cfg[m] = Object.assign({}, DEF[m], S.cfg[m]);
+const C = () => S.cfg[S.mode];
+const save = () => localStorage.reeder = JSON.stringify(S);
+const fmt = {wpm: v => v + ' wpm', rate: v => (+v).toFixed(2).replace(/0$/, '') + '×', chunk: v => v, size: v => v};
+const NATURAL = 170; // ponytail: Azure's rough natural wpm; only used for estimates and the no-key timer fallback
+const estWpm = () => S.mode === 'speed' ? C().wpm : Math.round(NATURAL * C().rate);
+
+// ---- text model: tokens = words with an "end" weight: 0 none, 1 clause, 2 sentence, 3 paragraph
+let tokens = [], pos = 0, playing = false, timer, raf, spans = [], voiceOff = false;
+const useVoice = () => S.mode !== 'speed' && S.key && !voiceOff;
+function tokenize(text){
+  const out = [];
+  for (const par of text.split(/\n\s*\n/)) {
+    const words = par.split(/\s+/).filter(Boolean);
+    words.forEach((w, i) => out.push({w, end: i === words.length - 1 ? 3 : /[.!?…]["'”’)\]]*$/.test(w) ? 2 : /[,;:—–]["'”’)]*$/.test(w) ? 1 : 0}));
+  }
+  return out;
+}
+// a flash/highlight covers up to chunk words but never runs past a sentence end
+const groupEnd = i => { const n = C().chunk || Infinity; let j = i; do j++; while (j < tokens.length && j - i < n && tokens[j - 1].end < 2); return j; };
+const sentStart = i => { while (i > 0 && tokens[i - 1].end < 2) i--; return i; };
+const sentEnd = i => { while (i < tokens.length && tokens[i].end < 2) i++; return i + 1; };
+const norm = s => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+
+// ---- display
+const word = $('word'), ctx = $('context'), article = $('article');
+function buildArticle(){
+  spans = []; article.replaceChildren(); let par = document.createElement('p');
+  tokens.forEach((t, i) => {
+    const sp = Object.assign(document.createElement('span'), {textContent: t.w}); sp.dataset.i = i; spans.push(sp); par.append(sp, ' ');
+    if (t.end === 3) { article.append(par); par = document.createElement('p'); }
+  });
+}
+function show(){
+  const j = groupEnd(pos);
+  if (S.mode === 'speech') {
+    for (const sp of article.querySelectorAll('.cur')) sp.classList.remove('cur');
+    for (let i = pos; i < j; i++) spans[i].classList.add('cur');
+    const r = spans[pos].getBoundingClientRect(), a = article.getBoundingClientRect();
+    if (r.top < a.top + a.height * .2 || r.bottom > a.top + a.height * .75) spans[pos].scrollIntoView({block:'center'});
+  } else {
+    const text = tokens.slice(pos, j).map(t => t.w).join(' '), orp = j - pos === 1 && C().orp;
+    const [l, p, r] = word.children, n = text.length, k = n < 2 ? 0 : n < 6 ? 1 : n < 10 ? 2 : n < 14 ? 3 : 4; // Spritz pivot letter
+    word.className = orp ? 'word' : 'word plain';
+    word.style.setProperty('--s', Math.min(C().size, orp ? 150 / n : Math.sqrt(9500 / n))); // shrink so the frame fits: one line for ORP, a wrapped block otherwise
+    l.textContent = orp ? text.slice(0, k) : ''; p.textContent = orp ? text[k] : ''; r.textContent = orp ? text.slice(k + 1) : text;
+  }
+  const wpm = base ? base * audio.playbackRate : estWpm();
+  $('bar').style.width = pos / tokens.length * 100 + '%';
+  $('status').textContent = `${Math.round(pos / tokens.length * 100)}% · ${Math.ceil((tokens.length - pos) / wpm)} min left`;
+}
+function showContext(){
+  if (S.mode === 'speech') return;
+  const s = sentStart(pos), e = sentEnd(pos), j = groupEnd(pos);
+  ctx.replaceChildren(tokens.slice(s, pos).map(t => t.w).join(' ') + ' ',
+    Object.assign(document.createElement('b'), {textContent: tokens.slice(pos, j).map(t => t.w).join(' ')}),
+    ' ' + tokens.slice(j, e).map(t => t.w).join(' '));
+}
+
+// ---- timer pacing (Speed mode, or voice modes without a key)
+function tick(){
+  if (pos >= tokens.length) return finish();
+  const j = groupEnd(pos); show();
+  let ms = (j - pos) * 60000 / estWpm();
+  if (S.mode !== 'speed' || C().ppause) ms *= [1, 1.4, 2, 2.5][tokens[j - 1].end];
+  timer = setTimeout(() => { pos = j; tick(); }, ms);
+}
+
+// ---- voice: Azure synthesizes ~150-word chunks; wordBoundary events give each word's audio time
+const audio = $('audio'); let chunks = [], cur = -1, times = [], base = 0;
+const SILENT = 'data:audio/wav;base64,UklGRogAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YWQAAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA';
+function makeChunks(){
+  chunks = []; let s = 0;
+  tokens.forEach((t, i) => { if ((i - s >= 150 && t.end >= 2) || i === tokens.length - 1) { chunks.push({s, e: i + 1}); s = i + 1; } });
+}
+const chunkOf = i => chunks.findIndex(c => i >= c.s && i < c.e);
+const esc = s => s.replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&apos;'}[c]));
+function ssml(c){
+  let body = '', par = [];
+  for (let i = c.s; i < c.e; i++) { par.push(esc(tokens[i].w)); if (tokens[i].end === 3) { body += `<p>${par.join(' ')}</p>`; par = []; } }
+  if (par.length) body += `<p>${par.join(' ')}</p>`;
+  return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US"><voice name="${C().voiceName}"><prosody rate="${c.rate}">${body}</prosody></voice></speak>`;
+}
+function synth(ci){
+  const c = chunks[ci]; if (c.p) return c.p;
+  c.rate = Math.min(2, Math.max(0.5, C().rate)).toFixed(2); // synthesized at the chosen pace; playbackRate covers live changes until the next chunk
+  return c.p = new Promise((res, rej) => {
+    const cfg = SpeechSDK.SpeechConfig.fromSubscription(S.key.trim(), S.region.trim());
+    cfg.speechSynthesisOutputFormat = SpeechSDK.SpeechSynthesisOutputFormat.Audio24Khz48KBitRateMonoMp3;
+    const sy = new SpeechSDK.SpeechSynthesizer(cfg, null);
+    const t = new Array(c.e - c.s).fill(-1); let p = 0;
+    // match spoken words back to our tokens in order; exact first, then prefix (Azure splits hyphenated words)
+    sy.wordBoundary = (_, e) => {
+      const n = norm(e.text); if (!n) return;
+      const win = Math.min(p + 8, t.length);
+      for (const test of [(a, b) => a === b, (a, b) => a.startsWith(b) || b.startsWith(a)])
+        for (let q = p; q < win; q++) if (test(norm(tokens[c.s + q].w), n)) { if (t[q] < 0) t[q] = e.audioOffset / 1e7; p = q; return; }
+    };
+    sy.speakSsmlAsync(ssml(c), r => {
+      sy.close();
+      if (r.reason !== SpeechSDK.ResultReason.SynthesizingAudioCompleted) { c.p = null; return rej(new Error(r.errorDetails || 'synthesis failed')); }
+      for (let q = 0; q < t.length; q++) if (t[q] < 0) t[q] = q ? t[q - 1] : 0;
+      res({url: URL.createObjectURL(new Blob([r.audioData], {type:'audio/mpeg'})), times: t});
+    }, err => { sy.close(); c.p = null; rej(new Error(err)); });
+  });
+}
+const setRate = () => { if (base) audio.playbackRate = C().rate / chunks[cur].rate; };
+async function loadChunk(ci){
+  $('status').textContent = 'Fetching voice…';
+  const d = await synth(ci);
+  cur = ci; times = d.times;
+  audio.src = d.url; await new Promise(r => audio.addEventListener('loadedmetadata', r, {once:true}));
+  base = (chunks[ci].e - chunks[ci].s) / (audio.duration / 60); setRate();
+  if (ci + 1 < chunks.length) synth(ci + 1).catch(() => {});
+}
+function frame(){
+  if (!playing) return;
+  const t = audio.currentTime + 0.05, c = chunks[cur];
+  for (let n = groupEnd(pos); n < c.e && t >= times[n - c.s]; n = groupEnd(pos)) { pos = n; show(); }
+  raf = requestAnimationFrame(frame);
+}
+audio.onended = () => {
+  if (cur < 0) return; // the unlock clip
+  cancelAnimationFrame(raf); pos = chunks[cur].e;
+  if (pos >= tokens.length) return finish();
+  loadChunk(cur + 1).then(() => { if (playing) { show(); audio.play(); frame(); } }).catch(voiceFail);
+};
+function voiceFail(e){
+  $('err').textContent = `Azure: ${e.message} — check key and region. Pacing by timer for now.`;
+  voiceOff = true; base = 0; playing = false; play();
+}
+
+// ---- transport
+async function play(){
+  if (playing) return;
+  if (pos >= tokens.length) pos = 0;
+  playing = true; $('play').textContent = 'Pause'; ctx.replaceChildren();
+  if (useVoice()) {
+    try {
+      const ci = chunkOf(pos); if (ci !== cur) await loadChunk(ci);
+      if (!playing) return;
+      audio.currentTime = times[pos - chunks[ci].s]; setRate();
+      show(); await audio.play(); $('err').textContent = ''; frame();
+    } catch (e) { voiceFail(e); }
+  } else tick();
+}
+function pause(){
+  playing = false; audio.pause(); clearTimeout(timer); cancelAnimationFrame(raf);
+  $('play').textContent = 'Play'; showContext(); S.pos = pos; save();
+}
+function finish(){ pause(); pos = 0; S.pos = 0; save(); $('status').textContent = 'Done'; }
+function seek(i){ pos = Math.max(0, Math.min(i, tokens.length - 1)); const was = playing; if (was) pause(); show(); showContext(); if (was) play(); }
+const back = () => { const s = sentStart(pos); seek(s === pos && pos > 0 ? sentStart(pos - 1) : s); };
+const fwd = () => seek(sentEnd(pos));
+
+// ---- settings UI: tabs pick the mode, each panel edits its own cfg
+function refresh(){
+  for (const b of document.querySelectorAll('.tabs button')) b.setAttribute('aria-selected', b.dataset.mode === S.mode);
+  for (const p of document.querySelectorAll('.panel[data-mode]')) p.hidden = p.dataset.mode !== S.mode;
+  $('azure').hidden = S.mode === 'speed';
+  for (const el of document.querySelectorAll('[data-k]')) {
+    const v = S.cfg[el.closest('.panel').dataset.mode][el.dataset.k];
+    el.type === 'checkbox' ? el.checked = v : el.value = v;
+    const o = el.parentElement.querySelector('output'); if (o) o.value = fmt[el.dataset.k](v);
+  }
+  $('speedCtl').hidden = S.mode !== 'speed'; $('rateCtl').hidden = S.mode === 'speed';
+  $('wpm2').value = S.cfg.speed.wpm; $('wpmOut2').value = fmt.wpm(S.cfg.speed.wpm);
+  if (S.mode !== 'speed') { $('rate2').value = C().rate; $('rateOut2').value = fmt.rate(C().rate); }
+  $('stage').style.setProperty('--s', C().size); article.classList.toggle('sent', !C().chunk);
+  stats();
+}
+function stats(){ const n = tokenize($('text').value).length; $('stats').textContent = `${n.toLocaleString()} words · ${Math.ceil(n / estWpm())} min at ${estWpm()} wpm`; $('start').disabled = !n; }
+function set(k, v){ C()[k] = v; save(); refresh(); setRate(); if (!$('stage').hidden) show(); }
+for (const el of document.querySelectorAll('[data-k]'))
+  el.oninput = () => { S.mode = el.closest('.panel').dataset.mode; set(el.dataset.k, el.type === 'checkbox' ? el.checked : el.type === 'text' ? el.value : +el.value); };
+for (const b of document.querySelectorAll('.tabs button')) b.onclick = () => { S.mode = b.dataset.mode; save(); refresh(); };
+for (const k of ['key','region']) { $(k).value = S[k]; $(k).oninput = () => { S[k] = $(k).value; save(); }; }
+$('wpm2').oninput = e => set('wpm', +e.target.value);
+$('rate2').oninput = e => set('rate', +e.target.value);
+const nudge = d => S.mode === 'speed' ? set('wpm', Math.min(900, Math.max(100, C().wpm + 25 * d)))
+                                      : set('rate', Math.min(2, Math.max(0.5, +(C().rate + 0.1 * d).toFixed(2))));
+$('text').value = S.text; $('text').oninput = stats;
+$('start').onclick = () => {
+  S.text = $('text').value; tokens = tokenize(S.text); makeChunks(); cur = -1; base = 0; voiceOff = false;
+  const key = S.text.length + ':' + S.text.slice(0, 80); // resume where you left off if it's the same text
+  pos = key === S.readKey && S.pos < tokens.length ? S.pos : 0; S.readKey = key; save();
+  const speech = S.mode === 'speech'; word.hidden = ctx.hidden = speech; article.hidden = !speech; if (speech) buildArticle();
+  $('err').textContent = S.mode !== 'speed' && !S.key ? 'No Azure key yet — pacing by timer. Add one under Azure Speech for voice.' : '';
+  if (useVoice()) { audio.src = SILENT; audio.play().catch(() => {}); } // iPhone only allows audio started inside a tap; unlock now, real audio follows
+  $('setup').hidden = true; $('stage').hidden = false; show(); showContext(); play();
+};
+$('exit').onclick = () => { pause(); $('stage').hidden = true; $('setup').hidden = false; };
+$('play').onclick = () => playing ? pause() : play();
+$('back').onclick = back; $('fwd').onclick = fwd;
+word.onclick = () => playing ? pause() : play();
+$('stage').onclick = e => { if (e.target === e.currentTarget || ctx.contains(e.target)) playing ? pause() : play(); }; // tap anywhere on the blank stage
+article.onclick = e => e.target.dataset.i && seek(+e.target.dataset.i);
+document.onkeydown = e => {
+  if ($('stage').hidden) return;
+  const k = {' ': () => playing ? pause() : play(), ArrowLeft: back, ArrowRight: fwd, ArrowUp: () => nudge(1), ArrowDown: () => nudge(-1), Escape: $('exit').onclick}[e.key];
+  if (k) { e.preventDefault(); k(); }
+};
+$('theme').onclick = () => { S.theme = {'':'dark', dark:'light', light:''}[S.theme]; save(); applyTheme(); };
+function applyTheme(){ S.theme ? document.documentElement.dataset.theme = S.theme : delete document.documentElement.dataset.theme; }
+applyTheme(); refresh();
+
+// self-check: open with ?test and look at the console
+if (location.search === '?test') {
+  tokens = tokenize('Hello, world. This is a test!\n\nNew para here');
+  console.assert(tokens.length === 9 && tokens[0].end === 1 && tokens[1].end === 2 && tokens[5].end === 3 && tokens[8].end === 3, 'tokenize', tokens);
+  S.mode = 'speed'; C().chunk = 3; console.assert(groupEnd(0) === 2 && groupEnd(2) === 5 && groupEnd(6) === 9, 'groupEnd');
+  C().chunk = 0; console.assert(groupEnd(2) === 6 && groupEnd(6) === 9, 'groupEnd sentence');
+  console.assert(sentStart(4) === 2 && sentEnd(3) === 6 && sentStart(0) === 0, 'sentence nav');
+  console.assert(norm("Don't!") === 'dont', 'norm'); console.log('reeder self-check done');
+}
+</script>
+</body>
+</html>
