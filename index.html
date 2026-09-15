@@ -43,6 +43,7 @@ textarea{width:100%;min-height:50vh;resize:vertical;padding:1rem;border:1px soli
 .settings label{display:grid;grid-template-columns:1fr auto;gap:.3rem .6rem;align-items:center}
 .settings label input[type=range]{grid-column:1/-1}
 .settings label input[type=text],.settings label input[type=password]{grid-column:1/-1}
+.settings select.voices{grid-column:1/-1}
 .settings input[type=text],.settings input[type=password],.settings select{padding:.4em .6em;border:1px solid var(--line);border-radius:6px;background:var(--paper)}
 .settings output{font-variant-numeric:tabular-nums;color:var(--muted)}
 .tabs{display:flex;border-bottom:1px solid var(--line)}
@@ -64,7 +65,10 @@ textarea{width:100%;min-height:50vh;resize:vertical;padding:1rem;border:1px soli
 .word .p::before{top:-.4em}.word .p::after{bottom:-.4em}
 .word.plain .p{display:none}
 #article{align-self:stretch;justify-self:center;min-height:0;overflow:auto;width:min(100%,72ch);padding:2rem 1.25rem;font-size:calc(.9rem + var(--s)*.09rem);line-height:1.7}
-#article p{margin:0 0 1em}
+#article{counter-reset:row}
+#article p{display:grid;grid-template-columns:2.2em 1fr;gap:.5em;margin:0 0 .35em;padding:.35em .5em;border-radius:6px;counter-increment:row}
+#article p::before{content:counter(row) '.';color:var(--muted);font-size:.75em;text-align:right;padding-top:.45em;font-variant-numeric:tabular-nums}
+#article p.cur-p{background:color-mix(in srgb,var(--accent) 10%,transparent)}
 #article span{cursor:pointer;border-radius:3px;padding:0 .1em}
 #article .cur{background:var(--accent);color:var(--accent-ink)}
 #article.sent .cur{background:color-mix(in srgb,var(--accent) 28%,transparent);color:inherit}
@@ -111,25 +115,20 @@ textarea{width:100%;min-height:50vh;resize:vertical;padding:1rem;border:1px soli
       <label>Voice speed <output></output><input type="range" data-k="rate" min="0.5" max="2" step="0.05"></label>
       <label>Highlight <select data-k="chunk"><option value="1">word</option><option value="0">sentence</option></select></label>
       <label>Text size <output></output><input type="range" data-k="size" min="4" max="18"></label>
-      <label>Voice <input type="text" data-k="voiceName" list="voices"></label>
+      <label>Voice <select data-k="voiceName" class="voices"><optgroup label="Recommended"><option value="en-US-AvaMultilingualNeural">Ava · Female · US</option><option value="en-US-AndrewMultilingualNeural">Andrew · Male · US</option><option value="en-US-EmmaMultilingualNeural">Emma · Female · US</option><option value="en-US-BrianMultilingualNeural">Brian · Male · US</option><option value="en-GB-SoniaNeural">Sonia · Female · UK</option><option value="en-GB-RyanNeural">Ryan · Male · UK</option><option value="en-AU-NatashaNeural">Natasha · Female · AU</option></optgroup></select></label>
     </div>
     <div class="panel" data-mode="both">
       <label>Voice speed <output></output><input type="range" data-k="rate" min="0.5" max="2" step="0.05"></label>
       <label>Words per frame <output></output><input type="range" data-k="chunk" min="1" max="20"></label>
       <label>Text size <output></output><input type="range" data-k="size" min="4" max="18"></label>
       <label>Focus letter (one word only) <input type="checkbox" data-k="orp"></label>
-      <label>Voice <input type="text" data-k="voiceName" list="voices"></label>
+      <label>Voice <select data-k="voiceName" class="voices"><optgroup label="Recommended"><option value="en-US-AvaMultilingualNeural">Ava · Female · US</option><option value="en-US-AndrewMultilingualNeural">Andrew · Male · US</option><option value="en-US-EmmaMultilingualNeural">Emma · Female · US</option><option value="en-US-BrianMultilingualNeural">Brian · Male · US</option><option value="en-GB-SoniaNeural">Sonia · Female · UK</option><option value="en-GB-RyanNeural">Ryan · Male · UK</option><option value="en-AU-NatashaNeural">Natasha · Female · AU</option></optgroup></select></label>
     </div>
-    <datalist id="voices">
-      <option value="en-US-AvaMultilingualNeural"><option value="en-US-AndrewMultilingualNeural">
-      <option value="en-US-EmmaMultilingualNeural"><option value="en-US-BrianMultilingualNeural">
-      <option value="en-GB-SoniaNeural"><option value="en-GB-RyanNeural"><option value="en-AU-NatashaNeural">
-    </datalist>
     <div id="azure" class="panel">
       <h2>Azure Speech</h2>
       <label>Key <input type="password" id="key" autocomplete="off"></label>
       <label>Region <input type="text" id="region" placeholder="eastus"></label>
-      <p class="note">Key stays in this browser's storage and goes only to Azure. Free tier covers 500k characters a month. Without a key, voice modes pace by timer.</p>
+      <p class="note">Key stays in this browser's storage and goes only to Azure. Free tier covers 500k characters a month. With a key, every English voice loads into the Voice list (HD voices first). Without one, voice modes pace by timer.</p>
     </div>
   </aside>
 </main>
@@ -171,9 +170,11 @@ const estWpm = () => S.mode === 'speed' ? C().wpm : Math.round(NATURAL * C().rat
 // ---- text model: tokens = words with an "end" weight: 0 none, 1 clause, 2 sentence, 3 paragraph
 let tokens = [], pos = 0, playing = false, timer, raf, spans = [], voiceOff = false;
 const useVoice = () => S.mode !== 'speed' && S.key && !voiceOff;
+// ponytail: markdown-ish cleanup so headings and bullets read as plain text; extend when something else grates
+const clean = s => s.replace(/^[ \t]*#{1,6}[ \t]+/gm, '').replace(/^[ \t]*[-*+][ \t]+/gm, '').replace(/\*\*|__|`/g, '');
 function tokenize(text){
   const out = [];
-  for (const par of text.split(/\n\s*\n/)) {
+  for (const par of clean(text).split(/\n+/)) { // every line is a row, like the Azure playground
     const words = par.split(/\s+/).filter(Boolean);
     words.forEach((w, i) => out.push({w, end: i === words.length - 1 ? 3 : /[.!?…]["'”’)\]]*$/.test(w) ? 2 : /[,;:—–]["'”’)]*$/.test(w) ? 1 : 0}));
   }
@@ -188,17 +189,18 @@ const norm = s => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
 // ---- display
 const word = $('word'), ctx = $('context'), article = $('article');
 function buildArticle(){
-  spans = []; article.replaceChildren(); let par = document.createElement('p');
+  spans = []; article.replaceChildren(); let row = document.createElement('span');
   tokens.forEach((t, i) => {
-    const sp = Object.assign(document.createElement('span'), {textContent: t.w}); sp.dataset.i = i; spans.push(sp); par.append(sp, ' ');
-    if (t.end === 3) { article.append(par); par = document.createElement('p'); }
+    const sp = Object.assign(document.createElement('span'), {textContent: t.w}); sp.dataset.i = i; spans.push(sp); row.append(sp, ' ');
+    if (t.end === 3) { const par = document.createElement('p'); par.append(row); article.append(par); row = document.createElement('span'); }
   });
 }
 function show(){
   const j = groupEnd(pos);
   if (S.mode === 'speech') {
-    for (const sp of article.querySelectorAll('.cur')) sp.classList.remove('cur');
+    for (const el of article.querySelectorAll('.cur, .cur-p')) el.classList.remove('cur', 'cur-p');
     for (let i = pos; i < j; i++) spans[i].classList.add('cur');
+    spans[pos].closest('p').classList.add('cur-p');
     const r = spans[pos].getBoundingClientRect(), a = article.getBoundingClientRect();
     if (r.top < a.top + a.height * .2 || r.bottom > a.top + a.height * .75) spans[pos].scrollIntoView({block:'center'});
   } else {
@@ -242,11 +244,12 @@ function ssml(c){
   let body = '', par = [];
   for (let i = c.s; i < c.e; i++) { par.push(esc(tokens[i].w)); if (tokens[i].end === 3) { body += `<p>${par.join(' ')}</p>`; par = []; } }
   if (par.length) body += `<p>${par.join(' ')}</p>`;
-  return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US"><voice name="${C().voiceName}"><prosody rate="${c.rate}">${body}</prosody></voice></speak>`;
+  if (c.rate !== '1.00') body = `<prosody rate="${c.rate}">${body}</prosody>`;
+  return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US"><voice name="${C().voiceName}">${body}</voice></speak>`;
 }
 function synth(ci){
   const c = chunks[ci]; if (c.p) return c.p;
-  c.rate = Math.min(2, Math.max(0.5, C().rate)).toFixed(2); // synthesized at the chosen pace; playbackRate covers live changes until the next chunk
+  c.rate = /DragonHD/i.test(C().voiceName) ? '1.00' : Math.min(2, Math.max(0.5, C().rate)).toFixed(2); // HD voices reject <prosody>; playbackRate covers the rest
   return c.p = new Promise((res, rej) => {
     const cfg = SpeechSDK.SpeechConfig.fromSubscription(S.key.trim(), S.region.trim());
     cfg.speechSynthesisOutputFormat = SpeechSDK.SpeechSynthesisOutputFormat.Audio24Khz48KBitRateMonoMp3;
@@ -262,8 +265,10 @@ function synth(ci){
     sy.speakSsmlAsync(ssml(c), r => {
       sy.close();
       if (r.reason !== SpeechSDK.ResultReason.SynthesizingAudioCompleted) { c.p = null; return rej(new Error(r.errorDetails || 'synthesis failed')); }
-      for (let q = 0; q < t.length; q++) if (t[q] < 0) t[q] = q ? t[q - 1] : 0;
-      res({url: URL.createObjectURL(new Blob([r.audioData], {type:'audio/mpeg'})), times: t});
+      const est = t.every(x => x < 0); // no word timings from this voice: spread words across the audio by character count
+      if (est) { let acc = 0; const total = t.reduce((a, _, q) => a + tokens[c.s + q].w.length + 1, 0); for (let q = 0; q < t.length; q++) { t[q] = acc / total; acc += tokens[c.s + q].w.length + 1; } }
+      else for (let q = 0; q < t.length; q++) if (t[q] < 0) t[q] = q ? t[q - 1] : 0;
+      res({url: URL.createObjectURL(new Blob([r.audioData], {type:'audio/mpeg'})), times: t, est});
     }, err => { sy.close(); c.p = null; rej(new Error(err)); });
   });
 }
@@ -271,8 +276,9 @@ const setRate = () => { if (base) audio.playbackRate = C().rate / chunks[cur].ra
 async function loadChunk(ci){
   $('status').textContent = 'Fetching voice…';
   const d = await synth(ci);
-  cur = ci; times = d.times;
+  cur = ci;
   audio.src = d.url; await new Promise(r => audio.addEventListener('loadedmetadata', r, {once:true}));
+  times = d.est ? d.times.map(f => f * audio.duration) : d.times;
   base = (chunks[ci].e - chunks[ci].s) / (audio.duration / 60); setRate();
   if (ci + 1 < chunks.length) synth(ci + 1).catch(() => {});
 }
@@ -291,6 +297,24 @@ audio.onended = () => {
 function voiceFail(e){
   $('err').textContent = `Azure: ${e.message} — check key and region. Pacing by timer for now.`;
   voiceOff = true; base = 0; playing = false; play();
+}
+
+// ---- voice list: all English voices from Azure, HD and multilingual first, then grouped by locale
+async function loadVoices(){
+  if (!S.key || !window.SpeechSDK) return;
+  const sy = new SpeechSDK.SpeechSynthesizer(SpeechSDK.SpeechConfig.fromSubscription(S.key.trim(), S.region.trim()), null);
+  const r = await sy.getVoicesAsync().catch(() => null); sy.close();
+  if (!r || !r.voices?.length) return;
+  const rank = v => /DragonHD/i.test(v.shortName) ? 0 : /Multilingual/i.test(v.shortName) ? 1 : 2;
+  const en = r.voices.filter(v => v.locale.startsWith('en-')).sort((a, b) => rank(a) - rank(b) || a.locale.localeCompare(b.locale) || a.shortName.localeCompare(b.shortName));
+  const label = v => `${v.displayName} · ${v.gender} · ${v.locale.slice(3)}${rank(v) === 0 ? ' · HD' : ''}${v.styleList?.length ? ` · ${v.styleList.length} styles` : ''}`;
+  for (const sel of document.querySelectorAll('select.voices')) {
+    const keep = sel.value; sel.replaceChildren();
+    const groups = {}; for (const v of en) (groups[rank(v) < 2 ? 'Recommended' : v.locale] ??= []).push(v);
+    for (const g in groups) { const og = document.createElement('optgroup'); og.label = g; for (const v of groups[g]) og.append(new Option(label(v), v.shortName)); sel.append(og); }
+    sel.value = keep; if (!sel.value) sel.value = en[0].shortName;
+  }
+  refresh();
 }
 
 // ---- transport
@@ -323,6 +347,7 @@ function refresh(){
   $('azure').hidden = S.mode === 'speed';
   for (const el of document.querySelectorAll('[data-k]')) {
     const v = S.cfg[el.closest('.panel').dataset.mode][el.dataset.k];
+    if (el.tagName === 'SELECT' && ![...el.options].some(o => o.value == v)) el.add(new Option(v, v));
     el.type === 'checkbox' ? el.checked = v : el.value = v;
     const o = el.parentElement.querySelector('output'); if (o) o.value = fmt[el.dataset.k](v);
   }
@@ -335,9 +360,9 @@ function refresh(){
 function stats(){ const n = tokenize($('text').value).length; $('stats').textContent = `${n.toLocaleString()} words · ${Math.ceil(n / estWpm())} min at ${estWpm()} wpm`; $('start').disabled = !n; }
 function set(k, v){ C()[k] = v; save(); refresh(); setRate(); if (!$('stage').hidden) show(); }
 for (const el of document.querySelectorAll('[data-k]'))
-  el.oninput = () => { S.mode = el.closest('.panel').dataset.mode; set(el.dataset.k, el.type === 'checkbox' ? el.checked : el.type === 'text' ? el.value : +el.value); };
+  el.oninput = () => { S.mode = el.closest('.panel').dataset.mode; const v = el.type === 'checkbox' ? el.checked : el.value; set(el.dataset.k, isNaN(v) ? v : +v); };
 for (const b of document.querySelectorAll('.tabs button')) b.onclick = () => { S.mode = b.dataset.mode; save(); refresh(); };
-for (const k of ['key','region']) { $(k).value = S[k]; $(k).oninput = () => { S[k] = $(k).value; save(); }; }
+for (const k of ['key','region']) { $(k).value = S[k]; $(k).oninput = () => { S[k] = $(k).value; save(); }; $(k).onchange = loadVoices; }
 $('wpm2').oninput = e => set('wpm', +e.target.value);
 $('rate2').oninput = e => set('rate', +e.target.value);
 const nudge = d => S.mode === 'speed' ? set('wpm', Math.min(900, Math.max(100, C().wpm + 25 * d)))
@@ -365,7 +390,7 @@ document.onkeydown = e => {
 };
 $('theme').onclick = () => { S.theme = {'':'dark', dark:'light', light:''}[S.theme]; save(); applyTheme(); };
 function applyTheme(){ S.theme ? document.documentElement.dataset.theme = S.theme : delete document.documentElement.dataset.theme; }
-applyTheme(); refresh();
+applyTheme(); refresh(); loadVoices();
 
 // self-check: open with ?test and look at the console
 if (location.search === '?test') {
