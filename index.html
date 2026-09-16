@@ -115,6 +115,7 @@ textarea{width:100%;min-height:50vh;resize:vertical;padding:1rem;border:1px soli
       <label>Voice speed <output></output><input type="range" data-k="rate" min="0.5" max="2" step="0.05"></label>
       <label>Highlight <select data-k="chunk"><option value="1">word</option><option value="0">sentence</option></select></label>
       <label>Text size <output></output><input type="range" data-k="size" min="4" max="18"></label>
+      <label>Language <select class="lang"><option value="en">English</option></select></label>
       <label>Voice <select data-k="voiceName" class="voices"><optgroup label="Recommended"><option value="en-US-AvaMultilingualNeural">Ava · Female · US</option><option value="en-US-AndrewMultilingualNeural">Andrew · Male · US</option><option value="en-US-EmmaMultilingualNeural">Emma · Female · US</option><option value="en-US-BrianMultilingualNeural">Brian · Male · US</option><option value="en-GB-SoniaNeural">Sonia · Female · UK</option><option value="en-GB-RyanNeural">Ryan · Male · UK</option><option value="en-AU-NatashaNeural">Natasha · Female · AU</option></optgroup></select></label>
     </div>
     <div class="panel" data-mode="both">
@@ -122,6 +123,7 @@ textarea{width:100%;min-height:50vh;resize:vertical;padding:1rem;border:1px soli
       <label>Words per frame <output></output><input type="range" data-k="chunk" min="1" max="20"></label>
       <label>Text size <output></output><input type="range" data-k="size" min="4" max="18"></label>
       <label>Focus letter (one word only) <input type="checkbox" data-k="orp"></label>
+      <label>Language <select class="lang"><option value="en">English</option></select></label>
       <label>Voice <select data-k="voiceName" class="voices"><optgroup label="Recommended"><option value="en-US-AvaMultilingualNeural">Ava · Female · US</option><option value="en-US-AndrewMultilingualNeural">Andrew · Male · US</option><option value="en-US-EmmaMultilingualNeural">Emma · Female · US</option><option value="en-US-BrianMultilingualNeural">Brian · Male · US</option><option value="en-GB-SoniaNeural">Sonia · Female · UK</option><option value="en-GB-RyanNeural">Ryan · Male · UK</option><option value="en-AU-NatashaNeural">Natasha · Female · AU</option></optgroup></select></label>
     </div>
     <div id="azure" class="panel">
@@ -159,7 +161,7 @@ const DEF = {
   speech: {rate:1, chunk:1, size:9, voiceName:'en-US-AvaMultilingualNeural'},
   both:   {rate:1, chunk:1, size:9, orp:true, voiceName:'en-US-AvaMultilingualNeural'},
 };
-const S = Object.assign({mode:'speed', key:'', region:'eastus', theme:'', text:'', pos:0, cfg:{}}, JSON.parse(localStorage.reeder || '{}'));
+const S = Object.assign({mode:'speed', key:'', region:'eastus', lang:'en', theme:'', text:'', pos:0, cfg:{}}, JSON.parse(localStorage.reeder || '{}'));
 for (const m in DEF) S.cfg[m] = Object.assign({}, DEF[m], S.cfg[m]);
 const C = () => S.cfg[S.mode];
 const save = () => localStorage.reeder = JSON.stringify(S);
@@ -245,7 +247,7 @@ function ssml(c){
   for (let i = c.s; i < c.e; i++) { par.push(esc(tokens[i].w)); if (tokens[i].end === 3) { body += `<p>${par.join(' ')}</p>`; par = []; } }
   if (par.length) body += `<p>${par.join(' ')}</p>`;
   if (c.rate !== '1.00') body = `<prosody rate="${c.rate}">${body}</prosody>`;
-  return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US"><voice name="${C().voiceName}">${body}</voice></speak>`;
+  return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="${C().voiceName.split('-').slice(0, 2).join('-')}"><voice name="${C().voiceName}">${body}</voice></speak>`;
 }
 function synth(ci){
   const c = chunks[ci]; if (c.p) return c.p;
@@ -299,23 +301,32 @@ function voiceFail(e){
   voiceOff = true; base = 0; playing = false; play();
 }
 
-// ---- voice list: all English voices from Azure, HD and multilingual first, then grouped by locale
+// ---- voice list: every voice from Azure, filtered by language; HD and multilingual first, then grouped by locale
+let allVoices = [];
+const langName = new Intl.DisplayNames(['en'], {type:'language'});
 async function loadVoices(){
   if (!S.key || !window.SpeechSDK) return;
   const sy = new SpeechSDK.SpeechSynthesizer(SpeechSDK.SpeechConfig.fromSubscription(S.key.trim(), S.region.trim()), null);
   const r = await sy.getVoicesAsync().catch(() => null); sy.close();
-  if (!r || !r.voices?.length) return;
+  if (r?.voices?.length) { allVoices = r.voices; fillVoices(); }
+}
+function fillVoices(){
+  const langs = [...new Set(allVoices.map(v => v.locale.split('-')[0]))].sort((a, b) => langName.of(a).localeCompare(langName.of(b)));
+  if (!langs.includes(S.lang)) S.lang = langs.includes('en') ? 'en' : langs[0];
+  for (const sel of document.querySelectorAll('select.lang')) { sel.replaceChildren(...langs.map(l => new Option(langName.of(l), l))); sel.value = S.lang; }
   const rank = v => /DragonHD/i.test(v.shortName) ? 0 : /Multilingual/i.test(v.shortName) ? 1 : 2;
-  const en = r.voices.filter(v => v.locale.startsWith('en-')).sort((a, b) => rank(a) - rank(b) || a.locale.localeCompare(b.locale) || a.shortName.localeCompare(b.shortName));
+  const list = allVoices.filter(v => v.locale.startsWith(S.lang + '-')).sort((a, b) => rank(a) - rank(b) || a.locale.localeCompare(b.locale) || a.shortName.localeCompare(b.shortName));
   const label = v => `${v.displayName} · ${v.gender} · ${v.locale.slice(3)}${rank(v) === 0 ? ' · HD' : ''}${v.styleList?.length ? ` · ${v.styleList.length} styles` : ''}`;
   for (const sel of document.querySelectorAll('select.voices')) {
-    const keep = sel.value; sel.replaceChildren();
-    const groups = {}; for (const v of en) (groups[rank(v) < 2 ? 'Recommended' : v.locale] ??= []).push(v);
+    sel.replaceChildren();
+    const groups = {}; for (const v of list) (groups[rank(v) < 2 ? 'Recommended' : v.locale] ??= []).push(v);
     for (const g in groups) { const og = document.createElement('optgroup'); og.label = g; for (const v of groups[g]) og.append(new Option(label(v), v.shortName)); sel.append(og); }
-    sel.value = keep; if (!sel.value) sel.value = en[0].shortName;
+    const cfg = S.cfg[sel.closest('.panel').dataset.mode]; // a voice from another language makes no sense here: pick the top one
+    if (!list.some(v => v.shortName === cfg.voiceName)) cfg.voiceName = list[0].shortName;
   }
-  refresh();
+  save(); refresh();
 }
+for (const sel of document.querySelectorAll('select.lang')) sel.onchange = () => { S.lang = sel.value; save(); fillVoices(); };
 
 // ---- transport
 async function play(){
