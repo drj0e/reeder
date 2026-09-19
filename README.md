@@ -14,15 +14,17 @@ Each mode keeps its own settings. Position is remembered per text, so you can cl
 
 ## Run it
 
-Open `index.html` in a browser. That's it.
-
-To reach it from a phone on the same network:
+**Container** (image built from `main` by GitHub Actions, amd64 + arm64):
 
 ```sh
-python3 -m http.server 8080 -d /path/to/reeder
+docker run -d --name reeder --restart unless-stopped -p 8080:80 ghcr.io/drj0e/reeder:latest
 ```
 
-then open `http://<your-ip>:8080`.
+Open `http://<host>:8080`. It's nginx serving one file, so any port mapping works.
+
+**No Docker**: open `index.html` in a browser, or serve the folder with `python3 -m http.server 8080`.
+
+Pin a build with `ghcr.io/drj0e/reeder:<commit sha>`; build locally with `docker build -t reeder .`.
 
 ## Voice (optional)
 
